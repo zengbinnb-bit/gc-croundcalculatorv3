@@ -1,0 +1,14 @@
+{
+  "name": "goodcang-ground-shipping-calculator",
+  "version": "2.0.0",
+  "private": true,
+  "description": "谷仓美国Ground渠道运费分区地图与计算器 — Vercel 部署版 v2 (修复搜索功能)",
+  "scripts": {
+    "dev": "vercel dev",
+    "deploy": "vercel --prod",
+    "build": "echo 'Static site, no build step needed'"
+  },
+  "engines": {
+    "node": ">=18.x"
+  }
+}
