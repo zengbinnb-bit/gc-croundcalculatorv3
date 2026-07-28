@@ -1,11 +1,12 @@
-// 诊断端点 v12 — 测试 AI 搜索 + Reddit + Google Trends
+// 诊断端点 v13 — 仅测试 AI 搜索（Gemini API + Pollinations.ai）
+// 已移除 Google Trends、Reddit、question-search 诊断（这些数据源已弃用）
 export default async function handler(req, res) {
   const { keyword } = req.query;
   const testKeyword = keyword || 'workbench';
   const baseUrl = `https://${req.headers.host}`;
   const results = {};
 
-  // 1. 测试 AI 搜索 API（v12 核心数据源）
+  // 1. 测试 AI 搜索 API（核心数据源）
   try {
     const resp = await fetch(`${baseUrl}/api/ai-search?keyword=${encodeURIComponent(testKeyword)}`, {
       signal: AbortSignal.timeout(25000),
@@ -20,6 +21,7 @@ export default async function handler(req, res) {
       heats: parsed && parsed.heats ? parsed.heats : null,
       source: parsed && parsed.source ? parsed.source : null,
       error: parsed && parsed.error ? parsed.error : null,
+      apiErrors: parsed && parsed.apiErrors ? parsed.apiErrors : null,
       stateCount: parsed && parsed.details ? parsed.details.totalStates : null,
       geminiEnabled: parsed && parsed.details ? parsed.details.geminiEnabled : false,
       hint: parsed && parsed.hint ? parsed.hint : null
@@ -28,9 +30,9 @@ export default async function handler(req, res) {
     results['ai-search'] = { status: 0, ok: false, error: err.message };
   }
 
-  // 2. 测试 Pollinations.ai 直连
+  // 2. 测试 Pollinations.ai 直连（简短 prompt 测试匿名可用性）
   try {
-    const pollResp = await fetch('https://text.pollinations.ai/hello?model=openai', {
+    const pollResp = await fetch('https://text.pollinations.ai/hello', {
       signal: AbortSignal.timeout(10000),
     });
     results['pollinations'] = {
@@ -42,66 +44,14 @@ export default async function handler(req, res) {
     results['pollinations'] = { status: 0, ok: false, error: err.message };
   }
 
-  // 3. 测试 Gemini API（如果配置了 Key）
+  // 3. 测试 Gemini API 配置状态
   results['gemini'] = {
     configured: !!process.env.GEMINI_API_KEY,
-    note: process.env.GEMINI_API_KEY ? 'API Key 已配置' : '未配置 GEMINI_API_KEY（从 https://aistudio.google.com/app/apikey 免费获取）'
+    model: 'gemini-2.5-flash',
+    note: process.env.GEMINI_API_KEY
+      ? 'API Key 已配置，使用 gemini-2.5-flash 模型'
+      : '未配置 GEMINI_API_KEY（从 https://aistudio.google.com/app/apikey 免费获取）。配置后需 Redeploy 才能生效。'
   };
-
-  // 4. 测试 Reddit JSON API 直连
-  try {
-    const redditResp = await fetch(`https://www.reddit.com/search.json?q=${encodeURIComponent(testKeyword)}&limit=3&sort=relevance`, {
-      headers: { 'User-Agent': 'ProductHeatMap/1.0 (research bot)' },
-      signal: AbortSignal.timeout(10000),
-    });
-    const redditData = await redditResp.json();
-    const posts = redditData?.data?.children || [];
-    results['reddit-broad'] = {
-      status: redditResp.status,
-      ok: redditResp.ok,
-      postCount: posts.length,
-      preview: posts.slice(0, 2).map(p => p.data?.title?.substring(0, 80) || '')
-    };
-  } catch (err) {
-    results['reddit-broad'] = { status: 0, ok: false, error: err.message };
-  }
-
-  // 5. 测试 question-search API 路由
-  try {
-    const resp = await fetch(`${baseUrl}/api/question-search?keyword=${encodeURIComponent(testKeyword)}`, {
-      signal: AbortSignal.timeout(25000),
-    });
-    const body = await resp.text();
-    let parsed;
-    try { parsed = JSON.parse(body); } catch { parsed = body.substring(0, 500); }
-    results['question-search'] = {
-      status: resp.status,
-      ok: resp.ok,
-      hasHeats: parsed && parsed.heats ? true : false,
-      heats: parsed && parsed.heats ? parsed.heats : null,
-      error: parsed && parsed.error ? parsed.error : null,
-      successfulSubs: parsed && parsed.details ? parsed.details.successfulSubreddits : null
-    };
-  } catch (err) {
-    results['question-search'] = { status: 0, ok: false, error: err.message };
-  }
-
-  // 6. 测试 Google Trends
-  try {
-    const resp = await fetch(`${baseUrl}/api/google-trends?keyword=${encodeURIComponent(testKeyword)}`, {
-      signal: AbortSignal.timeout(15000),
-    });
-    const body = await resp.text();
-    let parsed;
-    try { parsed = JSON.parse(body); } catch { parsed = body.substring(0, 300); }
-    results['google-trends'] = {
-      status: resp.status,
-      ok: resp.ok,
-      error: parsed && parsed.error ? parsed.error : null
-    };
-  } catch (err) {
-    results['google-trends'] = { status: 0, ok: false, error: err.message };
-  }
 
   return res.status(200).json({
     timestamp: new Date().toISOString(),
@@ -109,11 +59,8 @@ export default async function handler(req, res) {
     summary: {
       aiSearch: results['ai-search']?.ok ? (results['ai-search']?.hasHeats ? 'OK (heats returned, ' + results['ai-search'].stateCount + ' states)' : 'OK (no heats)') : 'FAILED',
       aiSource: results['ai-search']?.source || 'N/A',
-      gemini: results['gemini']?.configured ? 'Configured' : 'Not configured',
+      gemini: results['gemini']?.configured ? 'Configured (gemini-2.5-flash)' : 'Not configured',
       pollinations: results['pollinations']?.ok ? 'OK' : 'FAILED',
-      redditBroad: results['reddit-broad']?.ok ? 'OK' : 'FAILED',
-      questionSearch: results['question-search']?.ok ? (results['question-search']?.hasHeats ? 'OK (heats returned)' : 'OK (no heats)') : 'FAILED',
-      googleTrends: results['google-trends']?.ok ? 'OK' : 'FAILED (expected)'
     },
     results
   });

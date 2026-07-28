@@ -176,7 +176,7 @@ Return your answer as a valid JSON array. Each element must have:
 Return ONLY the JSON array. No explanation, no markdown, no code blocks. Example:
 [{"state":"California","score":100},{"state":"Texas","score":92},{"state":"Florida","score":88}]`;
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
 
   try {
     const resp = await fetch(url, {
@@ -201,7 +201,7 @@ Return ONLY the JSON array. No explanation, no markdown, no code blocks. Example
       return { error: 'Gemini API 返回空内容' };
     }
 
-    return { text, source: 'Google Gemini API (gemini-2.0-flash)' };
+    return { text, source: 'Google Gemini API (gemini-2.5-flash)' };
   } catch (err) {
     return { error: `Gemini API: ${err.name === 'TimeoutError' ? '请求超时(20s)' : err.message}` };
   }
@@ -218,7 +218,7 @@ Return ONLY a valid JSON array, no other text:
 
 Each element has "state" (full state name) and "score" (0-100 demand score).`;
 
-  const url = `https://text.pollinations.ai/${encodeURIComponent(prompt)}?model=openai`;
+  const url = `https://text.pollinations.ai/${encodeURIComponent(prompt)}`;
 
   try {
     const resp = await fetch(url, {
@@ -255,8 +255,7 @@ Each element: "state" (full state name) and "score" (0-100).`;
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        messages: [{ role: 'user', content: prompt }],
-        model: 'openai'
+        messages: [{ role: 'user', content: prompt }]
       }),
       signal: AbortSignal.timeout(20000),
     });
@@ -319,8 +318,8 @@ export default async function handler(req, res) {
       error: 'AI 搜索服务暂时不可用',
       apiErrors,
       hint: process.env.GEMINI_API_KEY
-        ? 'Gemini API 和 Pollinations 均失败，请稍后重试'
-        : '未配置 GEMINI_API_KEY。建议在 Vercel 项目 Settings → Environment Variables 中添加 GEMINI_API_KEY（从 https://aistudio.google.com/app/apikey 免费获取），可获得更稳定的搜索体验。当前使用免费 Pollinations.ai 作为备选。'
+        ? 'Gemini API 和 Pollinations 均失败，请访问 /api/debug 查看详细错误信息'
+        : '未配置 GEMINI_API_KEY。建议在 Vercel 项目 Settings → Environment Variables 中添加 GEMINI_API_KEY（从 https://aistudio.google.com/app/apikey 免费获取），添加后需 Redeploy 重新部署才能生效。'
     });
   }
 

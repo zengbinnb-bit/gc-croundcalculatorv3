@@ -1107,7 +1107,7 @@ async function searchProduct() {
         if (aDetails.geminiEnabled) {
           html += ' (已配置 Gemini API Key)';
         } else {
-          html += ' (使用免费 Pollinations.ai，建议配置 GEMINI_API_KEY 获得更稳定体验)';
+          html += ' (使用免费 Pollinations.ai 备选，建议配置 GEMINI_API_KEY 获得更稳定体验)';
         }
         html += '</div>';
         document.getElementById('searchResult').innerHTML = html;
@@ -1123,90 +1123,18 @@ async function searchProduct() {
       if (aiResult.data && aiResult.data.hint) allErrors.push('<b>提示:</b> ' + aiResult.data.hint);
     }
 
-    // ===== 数据源 2: Google Trends API（备用）=====
-    document.getElementById('searchResult').innerHTML = '<div class="search-loading">AI 搜索不可用，尝试 Google Trends API...<br><span style="font-size:10px;color:#888">Google Trends 偶尔可用（受 Vercel IP 限制）</span></div>';
-    var trendsResult = await fetchGoogleTrends(keyword);
-    if (trendsResult.data) {
-      var heats = parseTrendsToRegions(trendsResult.data);
-      if (heats) {
-        renderHeatmap(heats);
-        renderWarehouseRanking(heats);
-        var maxRegion = '', maxVal = 0;
-        Object.entries(heats).forEach(function(e) {
-          if (e[1] > maxVal) { maxVal = e[1]; maxRegion = e[0]; }
-        });
-        var regionName = window.CENSUS_REGIONS[maxRegion].name;
-        var stateCount = (trendsResult.data.default && trendsResult.data.default.geoMapData) ? trendsResult.data.default.geoMapData.length : 0;
-        var html = '<div class="search-meta">';
-        html += '<b>关键词:</b> ' + keyword + '<br>';
-        html += '<b>数据来源:</b> Google Trends (近12个月美国各州搜索热度) — 真实搜索数据<br>';
-        html += '<b>热度最高区域:</b> ' + regionName + ' (' + maxVal + '%)<br>';
-        html += '<b>验证方式:</b> Google Trends 各州搜索热度数据，按四大区域汇总归一化<br>';
-        html += '<b>覆盖范围:</b> ' + stateCount + '个州/地区，详见地图左下角热力图';
-        if (allErrors.length > 0) {
-          html += '<br><b style="color:#e74c3c;">⚠ AI 搜索不可用原因:</b> ' + allErrors[0];
-        }
-        html += '</div>';
-        document.getElementById('searchResult').innerHTML = html;
-        document.getElementById('heatmapInset').classList.add('show');
-        document.getElementById('heatmapTitle').textContent = '「' + keyword + '」热度分布';
-        setTimeout(function() { if (miniMap) miniMap.invalidateSize(); }, 100);
-        btn.disabled = false;
-        btn.textContent = '搜索';
-        return;
-      }
-    } else {
-      allErrors.push('<b>Google Trends:</b> ' + (trendsResult.error || '未知错误') + (trendsResult.hint ? ' (' + trendsResult.hint + ')' : ''));
-    }
-
-    // ===== 数据源 3: Reddit 本地社区搜索（最后备选）=====
-    document.getElementById('searchResult').innerHTML = '<div class="search-loading">尝试 Reddit 本地社区搜索「' + keyword + '」...<br><span style="font-size:10px;color:#888">在40个城市/州 subreddit 中搜索关键词（可能被 Reddit 限流）</span></div>';
-    var questionResult = await fetchQuestionSearch(keyword);
-    if (questionResult.data && questionResult.data.heats) {
-      var qHeats = questionResult.data.heats;
-      var qHasData = Object.values(qHeats).some(function(v) { return v > 0; });
-      if (qHasData) {
-        renderHeatmap(qHeats);
-        renderWarehouseRanking(qHeats);
-        var qMaxRegion = '', qMaxVal = 0;
-        Object.entries(qHeats).forEach(function(e) {
-          if (e[1] > qMaxVal) { qMaxVal = e[1]; qMaxRegion = e[0]; }
-        });
-        var qRegionName = window.CENSUS_REGIONS[qMaxRegion].name;
-        var qDetails = questionResult.data.details || {};
-        var html2 = '<div class="search-meta">';
-        html2 += '<b>关键词:</b> ' + keyword + '<br>';
-        html2 += '<b>数据来源:</b> Reddit 本地社区搜索 — 真实用户讨论数据<br>';
-        html2 += '<b>热度最高区域:</b> ' + qRegionName + ' (' + qMaxVal + '%)<br>';
-        html2 += '<b>搜索方式:</b> 40个城市/州subreddit热度统计<br>';
-        if (allErrors.length > 0) {
-          html2 += '<br><b style="color:#e74c3c;">⚠ AI 搜索和 Google Trends 不可用，已降级为 Reddit 搜索</b>';
-        }
-        html2 += '</div>';
-        document.getElementById('searchResult').innerHTML = html2;
-        document.getElementById('heatmapInset').classList.add('show');
-        document.getElementById('heatmapTitle').textContent = '「' + keyword + '」热度分布';
-        setTimeout(function() { if (miniMap) miniMap.invalidateSize(); }, 100);
-        btn.disabled = false;
-        btn.textContent = '搜索';
-        return;
-      }
-    } else {
-      allErrors.push('<b>Reddit 搜索:</b> ' + (questionResult.error || questionResult.data && questionResult.data.error || '无数据返回'));
-    }
-
-    // ===== 所有数据源均无结果 — 展示完整错误诊断 =====
+    // ===== AI 搜索失败 — 展示错误诊断（已移除 Google Trends 和 Reddit 搜索）=====
     var errorHtml = '<div class="warning-box">';
-    errorHtml += '⚠ 所有搜索数据源均未能获取「' + keyword + '」的热度数据<br><br>';
-    errorHtml += '<b>API 诊断信息（展开查看各数据源失败原因）：</b><br>';
+    errorHtml += '⚠ AI 搜索未能获取「' + keyword + '」的热度数据<br><br>';
+    errorHtml += '<b>API 诊断信息（展开查看失败原因）：</b><br>';
     errorHtml += '<details style="margin-top:6px;font-size:11px;color:#666;"><summary>点击展开诊断详情</summary>';
     errorHtml += allErrors.join('<br>') + '<br><br>';
-    errorHtml += '<b>诊断方法：</b>在浏览器地址栏访问 <code>/api/debug?keyword=' + encodeURIComponent(keyword) + '</code> 可查看各 API 的完整响应状态';
+    errorHtml += '<b>诊断方法：</b>在浏览器地址栏访问 <code>/api/debug?keyword=' + encodeURIComponent(keyword) + '</code> 可查看 API 的完整响应状态';
     errorHtml += '</details><br><br>';
     errorHtml += '<b>建议：</b><br>';
-    errorHtml += '• 在 Vercel 项目 Settings → Environment Variables 中添加 <code>GEMINI_API_KEY</code>（从 <a href="https://aistudio.google.com/app/apikey" target="_blank">Google AI Studio</a> 免费获取），启用 Gemini AI 搜索<br>';
-    errorHtml += '• 配置后 AI 搜索将作为主数据源，不依赖 Google Trends / Reddit 等被限流的 API<br>';
-    errorHtml += '• 当前免费方案（Pollinations.ai）也可用，但稳定性不如 Gemini API';
+    errorHtml += '• 确认已在 Vercel 项目 Settings → Environment Variables 中添加 <code>GEMINI_API_KEY</code>（从 <a href="https://aistudio.google.com/app/apikey" target="_blank">Google AI Studio</a> 免费获取）<br>';
+    errorHtml += '• 添加环境变量后必须点击 Redeploy 重新部署才能生效<br>';
+    errorHtml += '• 当前使用 Gemini 2.5 Flash 模型（免费额度：每天 20 次请求）';
     errorHtml += '</div>';
     document.getElementById('searchResult').innerHTML = errorHtml;
     document.getElementById('heatmapInset').classList.remove('show');
