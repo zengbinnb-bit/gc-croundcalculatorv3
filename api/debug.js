@@ -47,9 +47,9 @@ export default async function handler(req, res) {
   // 3. 测试 Gemini API 配置状态
   results['gemini'] = {
     configured: !!process.env.GEMINI_API_KEY,
-    model: 'gemini-2.5-flash',
+    model: 'gemini-2.5-flash-latest (多模型自动降级)',
     note: process.env.GEMINI_API_KEY
-      ? 'API Key 已配置，使用 gemini-2.5-flash 模型'
+      ? 'API Key 已配置，依次尝试: gemini-2.5-flash-latest → gemini-flash-latest → gemini-2.5-flash → gemini-2.5-flash-lite'
       : '未配置 GEMINI_API_KEY（从 https://aistudio.google.com/app/apikey 免费获取）。配置后需 Redeploy 才能生效。'
   };
 
@@ -59,7 +59,7 @@ export default async function handler(req, res) {
     summary: {
       aiSearch: results['ai-search']?.ok ? (results['ai-search']?.hasHeats ? 'OK (heats returned, ' + results['ai-search'].stateCount + ' states)' : 'OK (no heats)') : 'FAILED',
       aiSource: results['ai-search']?.source || 'N/A',
-      gemini: results['gemini']?.configured ? 'Configured (gemini-2.5-flash)' : 'Not configured',
+      gemini: results['gemini']?.configured ? 'Configured (multi-model fallback)' : 'Not configured',
       pollinations: results['pollinations']?.ok ? 'OK' : 'FAILED',
     },
     results

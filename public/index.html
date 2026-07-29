@@ -1134,7 +1134,7 @@ async function searchProduct() {
     errorHtml += '<b>建议：</b><br>';
     errorHtml += '• 确认已在 Vercel 项目 Settings → Environment Variables 中添加 <code>GEMINI_API_KEY</code>（从 <a href="https://aistudio.google.com/app/apikey" target="_blank">Google AI Studio</a> 免费获取）<br>';
     errorHtml += '• 添加环境变量后必须点击 Redeploy 重新部署才能生效<br>';
-    errorHtml += '• 当前使用 Gemini 2.5 Flash 模型（免费额度：每天 20 次请求）';
+    errorHtml += '• 当前使用 Gemini Flash 系列模型（自动选择可用版本，免费额度：每天 20 次请求）';
     errorHtml += '</div>';
     document.getElementById('searchResult').innerHTML = errorHtml;
     document.getElementById('heatmapInset').classList.remove('show');

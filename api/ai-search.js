@@ -159,6 +159,14 @@ function calculateRegionHeat(rankings) {
 }
 
 // ===== 数据源1: Google Gemini API =====
+// 依次尝试多个模型名称，兼容不同 API Key 的模型访问权限
+const GEMINI_MODELS = [
+  'gemini-2.5-flash-latest',   // 自动指向最新 2.5 Flash 稳定版
+  'gemini-flash-latest',        // 自动指向最新 Flash 系列
+  'gemini-2.5-flash',           // 原始模型名（部分旧 Key 仍可用）
+  'gemini-2.5-flash-lite',      // 轻量版（更宽松的配额）
+];
+
 async function searchWithGemini(keyword) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) return null;
@@ -176,35 +184,46 @@ Return your answer as a valid JSON array. Each element must have:
 Return ONLY the JSON array. No explanation, no markdown, no code blocks. Example:
 [{"state":"California","score":100},{"state":"Texas","score":92},{"state":"Florida","score":88}]`;
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+  const errors = [];
 
-  try {
-    const resp = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0.7, maxOutputTokens: 2048 }
-      }),
-      signal: AbortSignal.timeout(20000),
-    });
+  for (const modelName of GEMINI_MODELS) {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
 
-    if (!resp.ok) {
-      const errText = await resp.text().catch(() => '');
-      return { error: `Gemini API HTTP ${resp.status}: ${errText.substring(0, 200)}` };
+    try {
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { temperature: 0.7, maxOutputTokens: 2048 }
+        }),
+        signal: AbortSignal.timeout(20000),
+      });
+
+      if (!resp.ok) {
+        const errText = await resp.text().catch(() => '');
+        errors.push(`${modelName}: HTTP ${resp.status}`);
+        // 404 = 模型不存在，继续尝试下一个模型；其他错误也继续尝试
+        continue;
+      }
+
+      const data = await resp.json();
+      const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+
+      if (!text || text.length < 10) {
+        errors.push(`${modelName}: 返回空内容`);
+        continue;
+      }
+
+      return { text, source: `Google Gemini API (${modelName})` };
+    } catch (err) {
+      errors.push(`${modelName}: ${err.name === 'TimeoutError' ? '请求超时(20s)' : err.message}`);
+      continue;
     }
-
-    const data = await resp.json();
-    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
-
-    if (!text || text.length < 10) {
-      return { error: 'Gemini API 返回空内容' };
-    }
-
-    return { text, source: 'Google Gemini API (gemini-2.5-flash)' };
-  } catch (err) {
-    return { error: `Gemini API: ${err.name === 'TimeoutError' ? '请求超时(20s)' : err.message}` };
   }
+
+  // 所有模型都失败了
+  return { error: `Gemini API 所有模型均失败 — ${errors.join('; ')}` };
 }
 
 // ===== 数据源2: Pollinations.ai (免费, 无需 API Key) =====
