@@ -377,13 +377,25 @@ export default async function handler(req, res) {
     };
   }
 
+  // ===== 州级热度（按 AI 返回的州分数归一化到 0-100）=====
+  const stateHeats = {};
+  const maxStateScore = Math.max(...rankings.map(r => r.score), 1);
+  for (const r of rankings) {
+    stateHeats[r.state] = Math.round((r.score / maxStateScore) * 100);
+  }
+
+  // ===== 仓库热度（基于州级排名 + 仓库地理位置距离加权）=====
+  const warehouseHeats = calculateWarehouseHeats(rankings);
+
   res.setHeader('Cache-Control', 's-maxage=3600, stale-while-revalidate=86400');
   return res.status(200).json({
     heats,
+    stateHeats,
+    warehouseHeats,
     source: aiResult.source,
     keyword: kw,
     details: {
-      method: 'AI 分析：LLM 基于消费者市场数据评估各州需求 → 提取州排名 → 四大区域热度汇总',
+      method: 'AI 分析：LLM 基于消费者市场数据评估各州需求 → 提取州排名 → 州级热度 + 仓库距离加权热度',
       totalStates: rankings.length,
       stateRankings: stateDetails,
       regionDetails: regionDetails,
@@ -392,4 +404,82 @@ export default async function handler(req, res) {
     },
     apiErrors: apiErrors.length > 0 ? apiErrors : undefined
   });
+}
+
+// ===== 州中心坐标（近似 lat/lng）=====
+const STATE_CENTERS = {
+  'alabama':[32.8,-86.8],'alaska':[64.2,-149.5],'arizona':[34.3,-111.6],'arkansas':[34.9,-92.4],
+  'california':[37.2,-119.8],'colorado':[38.7,-105.5],'connecticut':[41.6,-72.7],'delaware':[39.0,-75.5],
+  'district of columbia':[38.9,-77.0],'florida':[28.0,-82.0],'georgia':[32.7,-83.4],'hawaii':[20.3,-157.0],
+  'idaho':[44.3,-114.6],'illinois':[40.0,-89.2],'indiana':[40.0,-86.3],'iowa':[42.0,-93.5],
+  'kansas':[38.5,-98.0],'kentucky':[37.5,-85.3],'louisiana':[31.0,-92.0],'maine':[45.2,-69.2],
+  'maryland':[39.0,-76.6],'massachusetts':[42.3,-71.8],'michigan':[44.3,-85.4],'minnesota':[46.3,-94.4],
+  'mississippi':[32.7,-89.7],'missouri':[38.3,-92.5],'montana':[47.0,-109.6],'nebraska':[41.5,-99.8],
+  'nevada':[39.4,-116.4],'new hampshire':[43.7,-71.5],'new jersey':[40.0,-74.4],'new mexico':[34.3,-106.0],
+  'new york':[42.9,-75.0],'north carolina':[35.5,-79.0],'north dakota':[47.5,-100.5],'ohio':[40.3,-82.8],
+  'oklahoma':[35.5,-97.5],'oregon':[44.0,-120.5],'pennsylvania':[40.9,-77.6],'rhode island':[41.7,-71.5],
+  'south carolina':[33.8,-80.9],'south dakota':[44.3,-100.0],'tennessee':[35.8,-86.0],'texas':[31.0,-97.0],
+  'utah':[39.3,-111.7],'vermont':[44.0,-72.7],'virginia':[37.8,-78.5],'washington':[47.4,-121.0],
+  'west virginia':[38.6,-80.5],'wisconsin':[44.3,-89.5],'wyoming':[43.0,-107.6]
+};
+
+// ===== 谷仓 10 个仓库坐标 =====
+const WAREHOUSE_LOCATIONS = {
+  '美西-西雅图仓':    [47.61, -122.33],
+  '美西-洛杉矶仓':    [34.05, -118.24],
+  '美东南-萨凡纳仓':  [32.08, -81.09],
+  '美东南-亚特兰大仓':[33.75, -84.39],
+  '美东-诺福克仓':    [36.85, -76.29],
+  '美东-新泽西州仓':  [40.72, -74.07],
+  '美中-芝加哥仓':    [41.88, -87.63],
+  '美西南-达拉斯仓':  [32.78, -96.80],
+  '美西南-休斯顿仓':  [29.76, -95.37],
+  '美东南-迈阿密仓':  [25.76, -80.19]
+};
+
+// Haversine 距离（英里）
+function haversineMiles(lat1, lng1, lat2, lng2) {
+  const R = 3959; // 地球半径（英里）
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180) * Math.cos(lat2*Math.PI/180) * Math.sin(dLng/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+
+// 距离→权重函数：近距离高权重，远距离衰减
+function distanceWeight(miles) {
+  if (miles < 150) return 1.0;       // 同州或极近 → 满权重
+  if (miles < 300) return 0.75;      // 邻近州 → 75%
+  if (miles < 500) return 0.50;      // 中距 → 50%
+  if (miles < 800) return 0.30;      // 远距 → 30%
+  if (miles < 1200) return 0.15;     // 很远 → 15%
+  return 0.05;                        // 极远 → 5%（仍保留微弱关联）
+}
+
+// 计算每个仓库的热度分值：基于 AI 州排名 + 地理距离加权覆盖
+function calculateWarehouseHeats(rankings) {
+  const results = {};
+
+  for (const [whName, whCoord] of Object.entries(WAREHOUSE_LOCATIONS)) {
+    let weightedScore = 0;
+
+    for (const r of rankings) {
+      const stateCenter = STATE_CENTERS[r.state];
+      if (!stateCenter) continue;
+
+      const dist = haversineMiles(whCoord[0], whCoord[1], stateCenter[0], stateCenter[1]);
+      const weight = distanceWeight(dist);
+      weightedScore += r.score * weight;
+    }
+
+    results[whName] = Math.round(weightedScore);
+  }
+
+  // 归一化到 0-100
+  const maxWh = Math.max(...Object.values(results), 1);
+  for (const k of Object.keys(results)) {
+    results[k] = Math.round((results[k] / maxWh) * 100);
+  }
+
+  return results;
 }
